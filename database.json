@@ -1,0 +1,9 @@
+{
+    "settings": {
+        "base_salary": {
+            "Bond": 0,
+            "Sushi": 0
+        }
+    },
+    "daily_logs": {}
+}
