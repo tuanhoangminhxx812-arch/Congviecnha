@@ -488,7 +488,6 @@ with tab_dash:
             <div class="card-title"><span style="font-size:1.8rem;">👧</span> Em gái Sushi</div>
             <hr style="border: 0; border-top: 1px solid #fbcfe8; margin: 10px 0;">
             <div class="card-metric-grid">
-                <div class="card-metric-grid">
                 <div class="card-metric-box">
                     <div class="card-metric-label">Lương cơ bản</div>
                     <div class="card-metric-val">{sushi_sum['base']:,}đ</div>
@@ -509,7 +508,6 @@ with tab_dash:
                     <div class="card-metric-label">Phạt thiết bị điện</div>
                     <div class="card-metric-val text-danger">-{sushi_sum['appliance_penalty']:,}đ</div>
                 </div>
-            </div>
             </div>
             <div class="card-salary-box">
                 <div class="card-salary-label color-sushi">TỔNG LƯƠNG NHẬN ĐƯỢC</div>
