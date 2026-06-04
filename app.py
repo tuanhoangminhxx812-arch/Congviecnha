@@ -882,25 +882,45 @@ with tab_settings:
     prices_list = [{"Công việc": k, "Đơn giá (VND)": v} for k, v in prices.items()]
     df_prices = pd.DataFrame(prices_list)
     
-    st.info("💡 Bạn có thể trực tiếp nhấp đúp vào ô đơn giá để sửa đổi giá trị thưởng hoặc phạt, sau đó bấm nút lưu để cập nhật vào file Excel.")
+    st.info("💡 Nhấp đúp vào ô bất kỳ để sửa. Nhấn nút **'+ Thêm hàng'** ở cuối bảng để thêm công việc mới — điền tên công việc và đơn giá (số âm = phạt, số dương = thưởng), rồi bấm lưu.")
     
     edited_df = st.data_editor(
         df_prices,
         use_container_width=True,
-        num_rows="fixed",
-        disabled=["Công việc"] # Only allow editing prices
+        num_rows="dynamic",
+        column_config={
+            "Công việc": st.column_config.TextColumn(
+                "Công việc",
+                help="Tên công việc hoặc vi phạm",
+                required=True,
+            ),
+            "Đơn giá (VND)": st.column_config.NumberColumn(
+                "Đơn giá (VND)",
+                help="Số dương = thưởng, số âm = phạt",
+                format="%d đ",
+                required=True,
+            ),
+        }
     )
     
     save_excel_btn = st.button("💾 Cập nhật bảng giá Excel (bang_gia.xlsx)")
     
     if save_excel_btn:
-        # Convert edited dataframe back to dictionary
+        # Convert edited dataframe back to dictionary, skip empty rows
         updated_prices = {}
         for _, row in edited_df.iterrows():
-            updated_prices[row["Công việc"]] = int(row["Đơn giá (VND)"])
-            
-        if save_prices_to_excel(updated_prices):
-            st.success("🎉 Đã lưu cập nhật vào file Excel 'bang_gia.xlsx' thành công!")
+            ten_cv = str(row["Công việc"]).strip() if pd.notna(row["Công việc"]) else ""
+            don_gia = row["Đơn giá (VND)"]
+            if ten_cv and pd.notna(don_gia):
+                try:
+                    updated_prices[ten_cv] = int(don_gia)
+                except:
+                    pass
+        
+        if not updated_prices:
+            st.error("❌ Bảng giá trống hoặc chưa điền đầy đủ, vui lòng kiểm tra lại!")
+        elif save_prices_to_excel(updated_prices):
+            st.success(f"🎉 Đã lưu {len(updated_prices)} mục vào file Excel 'bang_gia.xlsx' thành công!")
             st.rerun()
             
     st.markdown("---")
