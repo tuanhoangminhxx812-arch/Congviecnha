@@ -156,10 +156,18 @@ def calculate_daily_breakdown(date_str, log_data, prices):
         p_milk = 0
         p_app = 0
         
-        # 1. Chores calculation (only for the child who is assigned that day)
-        if assigned == name:
+        # 1. Chores calculation
+        if "Bond" in chores or "Sushi" in chores:
+            person_chores = chores.get(name, {})
+            has_chores = True
+        else:
+            # Old format backward compatibility
+            person_chores = chores if assigned == name else {}
+            has_chores = (assigned == name)
+            
+        if has_chores:
             # Lau nha
-            status_ln = chores.get("lau_nha", "Không giao")
+            status_ln = person_chores.get("lau_nha", "Không giao")
             if status_ln == "Hoàn thành":
                 earned_chores += reward_lau_nha
                 details.append(f"Làm đúng combo lau/quét nhà: +{reward_lau_nha:,}đ")
@@ -168,7 +176,7 @@ def calculate_daily_breakdown(date_str, log_data, prices):
                 details.append(f"Trễ/Chưa làm quét dọn (sau 11h30): -20,000đ")
                 
             # Rua chen
-            status_rc = chores.get("rua_chen", "Không giao")
+            status_rc = person_chores.get("rua_chen", "Không giao")
             if status_rc == "Hoàn thành":
                 earned_chores += reward_rua_chen
                 details.append(f"Làm đúng việc rửa chén: +{reward_rua_chen:,}đ")
@@ -177,7 +185,7 @@ def calculate_daily_breakdown(date_str, log_data, prices):
                 details.append(f"Trễ/Chưa rửa chén (sau 11h30): -20,000đ")
                 
             # Phoi do
-            status_pd = chores.get("phoi_do", "Không giao")
+            status_pd = person_chores.get("phoi_do", "Không giao")
             if status_pd == "Hoàn thành":
                 earned_chores += reward_phoi_do
                 details.append(f"Làm đúng việc phơi/gấp đồ: +{reward_phoi_do:,}đ")
@@ -240,11 +248,14 @@ def calculate_monthly_summary(year, month, db_data, prices):
                 summary["logs_count"] += 1
                 
                 # count chores done
-                if log_data.get("assigned_to") == name:
-                    chores = log_data.get("chores", {})
-                    for c_status in chores.values():
-                        if c_status == "Hoàn thành":
-                            summary["chores_done_count"] += 1
+                chores = log_data.get("chores", {})
+                if "Bond" in chores or "Sushi" in chores:
+                    person_chores = chores.get(name, {})
+                else:
+                    person_chores = chores if log_data.get("assigned_to") == name else {}
+                for c_status in person_chores.values():
+                    if c_status == "Hoàn thành":
+                        summary["chores_done_count"] += 1
                 
                 # count violations (milk, light, fan)
                 if not log_data.get("milk", {}).get(name, True):
@@ -252,9 +263,13 @@ def calculate_monthly_summary(year, month, db_data, prices):
                 app_forgot = log_data.get("appliances", {}).get(name, {"light": 0, "fan": 0})
                 summary["violations_count"] += app_forgot.get("light", 0) + app_forgot.get("fan", 0)
                 
+            assigned_val = log_data.get("assigned_to", "Không có")
+            if "Bond" in log_data.get("chores", {}) or "Sushi" in log_data.get("chores", {}):
+                assigned_val = "Cả hai"
+                
             daily_details.append({
                 "Ngày": f"Ngày {day_num} ({weekday_str})",
-                "Phân công": log_data.get("assigned_to", "Không có"),
+                "Phân công": assigned_val,
                 "Bond_Chore": day_breakdown["Bond"]["chores_earned"] - day_breakdown["Bond"]["chores_penalties"],
                 "Bond_Milk": -day_breakdown["Bond"]["milk_penalty"],
                 "Bond_Elec": -day_breakdown["Bond"]["appliance_penalty"],
@@ -594,44 +609,100 @@ with tab_checkin:
     # Pre-calculated default values
     default_assignee = get_default_assigned_person(check_date)
     
+    # Load existing chores or set defaults
+    chores_data = existing_log.get("chores", {})
+    
+    # Check if existing log is new or old format
+    if "Bond" in chores_data or "Sushi" in chores_data:
+        bond_chores_existing = chores_data.get("Bond", {})
+        sushi_chores_existing = chores_data.get("Sushi", {})
+    else:
+        # Old format or no existing log
+        old_assigned = existing_log.get("assigned_to", default_assignee)
+        if old_assigned == "Bond":
+            bond_chores_existing = chores_data
+            sushi_chores_existing = {}
+        elif old_assigned == "Sushi":
+            sushi_chores_existing = chores_data
+            bond_chores_existing = {}
+        else:
+            bond_chores_existing = {}
+            sushi_chores_existing = {}
+
+    # Determine default values for new entries based on weekday
+    if not existing_log:
+        if default_assignee == "Bond":
+            default_bond_status = "Hoàn thành"
+            default_sushi_status = "Không giao"
+        elif default_assignee == "Sushi":
+            default_bond_status = "Không giao"
+            default_sushi_status = "Hoàn thành"
+        else:
+            default_bond_status = "Không giao"
+            default_sushi_status = "Không giao"
+    else:
+        default_bond_status = "Không giao"
+        default_sushi_status = "Không giao"
+
+    # Get status for each chore
+    default_ln_bond = bond_chores_existing.get("lau_nha", default_bond_status)
+    default_rc_bond = bond_chores_existing.get("rua_chen", default_bond_status)
+    default_pd_bond = bond_chores_existing.get("phoi_do", default_bond_status)
+    
+    default_ln_sushi = sushi_chores_existing.get("lau_nha", default_sushi_status)
+    default_rc_sushi = sushi_chores_existing.get("rua_chen", default_sushi_status)
+    default_pd_sushi = sushi_chores_existing.get("phoi_do", default_sushi_status)
+
     # Form for check-in
     with st.form("daily_checkin_form"):
         st.markdown(f"#### Thông tin điểm danh ngày **{date_str} ({weekday_vn})**")
         
-        # Responsible person selection
-        assigned_to = st.selectbox(
-            "Bạn chịu trách nhiệm việc nhà ngày hôm nay:",
-            options=["Bond", "Sushi", "Không có"],
-            index=["Bond", "Sushi", "Không có"].index(existing_log.get("assigned_to", default_assignee))
-        )
-        
-        # Chores inputs (Only active if assigned_to is not "Không có")
+        # Chores inputs for both kids
         st.markdown("---")
-        st.markdown("#### 🧹 Tình hình làm việc nhà (Chỉ áp dụng cho bạn được phân công)")
+        st.markdown("#### 🧹 Tình hình làm việc nhà (Cả 2 bạn đều được phân công hàng ngày)")
         
-        chores_data = existing_log.get("chores", {})
+        col_bond_chores, col_sushi_chores = st.columns(2)
         
-        col_ln, col_rc, col_pd = st.columns(3)
-        
-        with col_ln:
-            status_ln = st.radio(
-                "Lau, quét nhà & hút bụi (Combo: 20k):",
+        with col_bond_chores:
+            st.markdown("##### 👦 Việc nhà của Bond")
+            status_ln_bond = st.radio(
+                "Lau, quét nhà & hút bụi (Bond - Combo: 20k):",
                 options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
-                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(chores_data.get("lau_nha", "Hoàn thành" if assigned_to != "Không có" else "Không giao"))
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_ln_bond),
+                key="ln_bond"
             )
-        
-        with col_rc:
-            status_rc = st.radio(
-                "Rửa chén (10k):",
+            status_rc_bond = st.radio(
+                "Rửa chén (Bond - 10k):",
                 options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
-                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(chores_data.get("rua_chen", "Hoàn thành" if assigned_to != "Không có" else "Không giao"))
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_rc_bond),
+                key="rc_bond"
+            )
+            status_pd_bond = st.radio(
+                "Phơi đồ & gấp đồ (Bond - 10k):",
+                options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_pd_bond),
+                key="pd_bond"
             )
             
-        with col_pd:
-            status_pd = st.radio(
-                "Phơi đồ & gấp đồ (10k):",
+        with col_sushi_chores:
+            st.markdown("##### 👧 Việc nhà của Sushi")
+            status_ln_sushi = st.radio(
+                "Lau, quét nhà & hút bụi (Sushi - Combo: 20k):",
                 options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
-                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(chores_data.get("phoi_do", "Hoàn thành" if assigned_to != "Không có" else "Không giao"))
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_ln_sushi),
+                key="ln_sushi"
+            )
+            status_rc_sushi = st.radio(
+                "Rửa chén (Sushi - 10k):",
+                options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_rc_sushi),
+                key="rc_sushi"
+            )
+            status_pd_sushi = st.radio(
+                "Phơi đồ & gấp đồ (Sushi - 10k):",
+                options=["Hoàn thành", "Chưa làm / Trễ", "Không giao"],
+                index=["Hoàn thành", "Chưa làm / Trễ", "Không giao"].index(default_pd_sushi),
+                key="pd_sushi"
             )
             
         st.markdown("---")
@@ -664,17 +735,36 @@ with tab_checkin:
         st.markdown("---")
         notes = st.text_area("Ghi chú thêm (nếu có):", value=existing_log.get("notes", ""))
         
+        # Validation checks
+        warnings = []
+        if status_ln_bond == "Hoàn thành" and status_ln_sushi == "Hoàn thành":
+            warnings.append("⚠️ Cảnh báo: Lau/quét nhà đang được đánh dấu Hoàn thành cho cả 2 bạn.")
+        if status_rc_bond == "Hoàn thành" and status_rc_sushi == "Hoàn thành":
+            warnings.append("⚠️ Cảnh báo: Rửa chén đang được đánh dấu Hoàn thành cho cả 2 bạn.")
+        if status_pd_bond == "Hoàn thành" and status_pd_sushi == "Hoàn thành":
+            warnings.append("⚠️ Cảnh báo: Phơi/gấp đồ đang được đánh dấu Hoàn thành cho cả 2 bạn.")
+            
+        for warning_msg in warnings:
+            st.warning(warning_msg)
+            
         # Submit button
         submit_btn = st.form_submit_button("💾 Lưu Nhật Ký Ngày Hôm Nay")
         
         if submit_btn:
             # Prepare data
             new_log = {
-                "assigned_to": assigned_to,
+                "assigned_to": "Cả hai",
                 "chores": {
-                    "lau_nha": status_ln if assigned_to != "Không có" else "Không giao",
-                    "rua_chen": status_rc if assigned_to != "Không có" else "Không giao",
-                    "phoi_do": status_pd if assigned_to != "Không có" else "Không giao"
+                    "Bond": {
+                        "lau_nha": status_ln_bond,
+                        "rua_chen": status_rc_bond,
+                        "phoi_do": status_pd_bond
+                    },
+                    "Sushi": {
+                        "lau_nha": status_ln_sushi,
+                        "rua_chen": status_rc_sushi,
+                        "phoi_do": status_pd_sushi
+                    }
                 },
                 "milk": {
                     "Bond": milk_bond,
@@ -825,14 +915,54 @@ with tab_history:
         log_list = []
         for d_str, log_info in sorted(logs.items(), reverse=True):
             wd = get_vietnamese_weekday(datetime.strptime(d_str, "%Y-%m-%d").date())
-            chores_str = f"Lau nhà: {log_info.get('chores', {}).get('lau_nha')}, Rửa chén: {log_info.get('chores', {}).get('rua_chen')}, Phơi đồ: {log_info.get('chores', {}).get('phoi_do')}" if log_info.get('assigned_to') != 'Không có' else 'Không giao'
+            
+            # Formatted chores summary supporting both formats
+            chores = log_info.get("chores", {})
+            if "Bond" in chores or "Sushi" in chores:
+                def format_chores_summary(chores_dict):
+                    name_map = {"lau_nha": "Lau nhà", "rua_chen": "Rửa chén", "phoi_do": "Phơi đồ"}
+                    done = []
+                    late = []
+                    for k, v in chores_dict.items():
+                        vn_name = name_map.get(k, k)
+                        if v == "Hoàn thành":
+                            done.append(vn_name)
+                        elif v == "Chưa làm / Trễ":
+                            late.append(f"{vn_name} (Trễ)")
+                    
+                    parts = []
+                    if done:
+                        parts.append(f"Xong: {', '.join(done)}")
+                    if late:
+                        parts.append(f"Trễ: {', '.join(late)}")
+                    return " + ".join(parts) if parts else "Không làm"
+
+                bond_str = format_chores_summary(chores.get("Bond", {}))
+                sushi_str = format_chores_summary(chores.get("Sushi", {}))
+                chores_str = f"Bond ({bond_str}) | Sushi ({sushi_str})"
+                assigned_to_val = "Cả hai"
+            else:
+                assigned_to_val = log_info.get("assigned_to", "Không có")
+                if assigned_to_val != "Không có":
+                    name_map = {"lau_nha": "Lau nhà", "rua_chen": "Rửa chén", "phoi_do": "Phơi đồ"}
+                    done = [name_map.get(k, k) for k, v in chores.items() if v == "Hoàn thành"]
+                    late = [f"{name_map.get(k, k)} (Trễ)" for k, v in chores.items() if v == "Chưa làm / Trễ"]
+                    parts = []
+                    if done:
+                        parts.append(f"Xong: {', '.join(done)}")
+                    if late:
+                        parts.append(f"Trễ: {', '.join(late)}")
+                    chores_str = f"{assigned_to_val} (" + (" + ".join(parts) if parts else "Không làm") + ")"
+                else:
+                    chores_str = "Không giao"
+            
             milk_str = f"Bond: {'Đã uống' if log_info.get('milk', {}).get('Bond', True) else 'Quên'}, Sushi: {'Đã uống' if log_info.get('milk', {}).get('Sushi', True) else 'Quên'}"
             elec_str = f"Bond: {log_info.get('appliances', {}).get('Bond', {}).get('light', 0)} đèn/{log_info.get('appliances', {}).get('Bond', {}).get('fan', 0)} quạt, Sushi: {log_info.get('appliances', {}).get('Sushi', {}).get('light', 0)} đèn/{log_info.get('appliances', {}).get('Sushi', {}).get('fan', 0)} quạt"
             
             log_list.append({
                 "Ngày": d_str,
                 "Thứ": wd,
-                "Người trực": log_info.get("assigned_to", "Không có"),
+                "Người trực": assigned_to_val,
                 "Việc nhà": chores_str,
                 "Uống sữa": milk_str,
                 "Quên tắt điện/quạt": elec_str,
